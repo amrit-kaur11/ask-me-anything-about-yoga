@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Env files
+.env
+backend/.env
+backend/storage/.env
+
+# Node
+node_modules/
+dist/
+
+# RAG artifacts
+backend/storage/index.faiss
+backend/storage/meta.json
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+#Chroma/local db 
+backend/storage/chroma/
+backend/storage/chroma.sqlite3
+
+# Node
+frontend/node_modules/
+frontend/dist/
