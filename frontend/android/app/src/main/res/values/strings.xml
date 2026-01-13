@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AskMeAI</string>
+    <string name="title_activity_main">AskMeAI</string>
+    <string name="package_name">com.askmeai.yoga</string>
+    <string name="custom_url_scheme">com.askmeai.yoga</string>
+</resources>
