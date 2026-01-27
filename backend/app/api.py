@@ -21,6 +21,10 @@ load_dotenv(Path(__file__).resolve().parents[1] / "storage" / ".env")
 router = APIRouter()
 
 
+# -------------------------
+# Request / Response Models
+# -------------------------
+
 class AskRequest(BaseModel):
     query: str = Field(..., min_length=3, max_length=2000)
 
@@ -51,6 +55,10 @@ class FeedbackResponse(BaseModel):
     ok: bool = True
 
 
+# -------------------------
+# Dependency helpers
+# -------------------------
+
 def get_mongo(request: Request) -> Mongo:
     return request.app.state.mongo
 
@@ -63,6 +71,10 @@ def get_generator(request: Request) -> Generator:
     return request.app.state.generator
 
 
+# -------------------------
+# Main Ask Endpoint
+# -------------------------
+
 @router.post("/ask", response_model=AskResponse)
 async def ask(
     payload: AskRequest,
@@ -74,48 +86,69 @@ async def ask(
     query = payload.query.strip()
     request_id = str(uuid.uuid4())
 
+    # 🔐 Safety detection (system-level, BEFORE generation)
     safety = check_safety(query)
 
     sources: List[SourceItem] = []
     retrieved_chunks: List[RetrievedChunk] = []
     answer = ""
 
-    if safety.is_unsafe:
-        answer = unsafe_response_text(safety.reasons)
-    else:
-        try:
-            # Retrieve ONCE and use the same retrieved chunks for both answer + sources
-            retrieved_chunks = retriever.retrieve(query)
+    try:
+        # -------------------------
+        # Retrieval (ALWAYS runs)
+        # -------------------------
+        retrieved_chunks = retriever.retrieve(query)
 
-            # Debug prints (so you can see hits in the backend terminal)
-            print("[ASK] query =", query)
-            print("[ASK] index_dir =", getattr(retriever, "index_dir", None))
-            print("[ASK] hits =", len(retrieved_chunks))
-            if retrieved_chunks:
-                print(
-                    "[ASK] top =",
-                    retrieved_chunks[0].title,
-                    "score =",
-                    getattr(retrieved_chunks[0], "score", None),
-                )
+        # Debug prints (useful for demo & evaluation)
+        print("[ASK] query =", query)
+        print("[ASK] index_dir =", getattr(retriever, "index_dir", None))
+        print("[ASK] hits =", len(retrieved_chunks))
+        if retrieved_chunks:
+            print(
+                "[ASK] top =",
+                retrieved_chunks[0].title,
+                "score =",
+                getattr(retrieved_chunks[0], "score", None),
+            )
 
-            # Generate answer from retrieved chunks
-            answer = generator.generate(query, retrieved_chunks)
+        # -------------------------
+        # Generation (RAG)
+        # -------------------------
+        answer = generator.generate(query, retrieved_chunks)
 
-            # Return sources to Swagger + frontend
-            sources = [
-                SourceItem(
-                    chunk_id=str(getattr(c, "chunk_id", "")),
-                    title=str(getattr(c, "title", "")),
-                    article_id=str(getattr(c, "article_id", "")),
-                    source=str(getattr(c, "source", "")),
-                    score=float(getattr(c, "score", 0.0)),
-                )
-                for c in retrieved_chunks
-            ]
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"RAG pipeline error: {e}")
+        # -------------------------
+        # Enforce safety framing AFTER generation
+        # -------------------------
+        if safety.is_unsafe:
+            answer = (
+                "⚠️ **Medical Safety Notice**\n\n"
+                "This response is provided for general wellness education only and "
+                "is **not medical advice**.\n\n"
+                + answer +
+                "\n\nPlease consult a qualified healthcare professional or a certified "
+                "yoga therapist before attempting any breathing or physical practices."
+            )
 
+        # -------------------------
+        # Build sources for UI
+        # -------------------------
+        sources = [
+            SourceItem(
+                chunk_id=str(getattr(c, "chunk_id", "")),
+                title=str(getattr(c, "title", "")),
+                article_id=str(getattr(c, "article_id", "")),
+                source=str(getattr(c, "source", "")),
+                score=float(getattr(c, "score", 0.0)),
+            )
+            for c in retrieved_chunks
+        ]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RAG pipeline error: {e}")
+
+    # -------------------------
+    # Logging (MongoDB)
+    # -------------------------
     latency_ms = int((time.time() - start) * 1000)
 
     log_doc = {
@@ -123,6 +156,7 @@ async def ask(
         "query": query,
         "is_unsafe": safety.is_unsafe,
         "safety_reasons": safety.reasons,
+        "severities": safety.severities,
         "retrieved_chunks": [
             {
                 "chunk_id": str(getattr(c, "chunk_id", "")),
@@ -154,6 +188,10 @@ async def ask(
         sources=sources,
     )
 
+
+# -------------------------
+# Feedback Endpoint
+# -------------------------
 
 @router.post("/feedback", response_model=FeedbackResponse)
 async def feedback(
