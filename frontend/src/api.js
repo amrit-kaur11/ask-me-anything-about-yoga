@@ -1,10 +1,6 @@
 // frontend/src/api.js
 
-/**
-* API helper for frontend → backend communication
-* Uses Vite dev proxy ("/api" → http://localhost:8000)
-* Do NOT use absolute URLs here.
-*/
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 async function request(path, { method = "GET", body, headers, ...rest } = {}) {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
