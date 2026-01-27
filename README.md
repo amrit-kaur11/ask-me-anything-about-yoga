@@ -230,9 +230,15 @@ cpp
 http://<your-laptop-ip>:8000
 This is how real mobile apps work with APIs.
 
+---
+
 ⚠️ Important:
+
 The APK is not standalone. The FastAPI backend must be running on the same network.
+
 This mirrors real-world mobile–backend system design.
+
+---
 
 🚧 Limitations & Future Work
 
@@ -246,6 +252,8 @@ Multi-domain knowledge bases can be added
 
 These trade-offs were intentional to prioritize RAG correctness and backend design.
 
+---
+
 🎯 What This Project Shows
 Full-stack AI system
 
@@ -257,7 +265,10 @@ Production-style architecture
 
 Local LLM deployment
 
+---
+
 👩‍💻 Author
 Amrit Kaur
 AI & Data Science Engineer
+
 
