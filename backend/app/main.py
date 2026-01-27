@@ -30,23 +30,26 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="AskMe AI - Yoga RAG")
 
-    cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+    cors_origins = os.getenv("CORS_ORIGINS", "http://127.0.0.1:11434").split(",")
     cors_origins = [o.strip() for o in cors_origins if o.strip()]
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins or ["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,          # <-- allow any origin (fixes Capacitor/Android origins)
+        allow_credentials=False,      # <-- keep False with "*"
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+
     app.include_router(router, prefix="/api")
 
+    # Health check endpoint (used by frontend)
     @app.get("/health")
     async def health():
         return {"ok": True}
-
+    
+    # FastAPI lifecycle hook
     @app.on_event("startup")
     async def startup():
         mongo = init_mongo()
@@ -65,6 +68,7 @@ def create_app() -> FastAPI:
         # Generator (Ollama primary + fallback)
         app.state.generator = generator_from_env()
 
+    # FastAPI lifecycle hook
     @app.on_event("shutdown")
     async def shutdown():
         app.state.mongo.client.close()
