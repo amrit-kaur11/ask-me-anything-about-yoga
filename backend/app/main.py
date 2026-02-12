@@ -57,7 +57,10 @@ def create_app() -> FastAPI:
         app.state.mongo = mongo
 
         # Embeddings
-        sbert_model = os.getenv("SBERT_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        sbert_model = os.getenv(
+            "SBERT_MODEL", 
+            "sentence-transformers/all-MiniLM-L6-v2"
+        ).strip()
         embedder = Embedder(sbert_model_name=sbert_model)
 
         # Retriever
