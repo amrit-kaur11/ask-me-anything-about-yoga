@@ -52,6 +52,11 @@ def create_app() -> FastAPI:
     # FastAPI lifecycle hook
     @app.on_event("startup")
     async def startup():
+            # Login to HuggingFace FIRST
+        hf_token = os.getenv("HF_TOKEN")
+        if hf_token:
+            login(token=hf_token)
+            
         mongo = init_mongo()
         await ensure_indexes(mongo)
         app.state.mongo = mongo
