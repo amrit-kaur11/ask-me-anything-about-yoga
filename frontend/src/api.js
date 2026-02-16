@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL;
 async function request(path, { method = "GET", body, headers, ...rest } = {}) {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
 
-  const res = await fetch(cleanPath, {
+  const res = await fetch(`${API_BASE}${cleanPath}`, {
     method,
     mode: "cors",
     headers: {
