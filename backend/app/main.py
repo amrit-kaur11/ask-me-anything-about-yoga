@@ -30,12 +30,13 @@ def create_app() -> FastAPI:
     _load_env()
 
     app = FastAPI(title="AskMe AI - Yoga RAG")
-    cors_origins = os.getenv("CORS_ORIGINS", "http://127.0.0.1:11434, https://ask-me-anything-about-yoga-ai.vercel.app/").split(",")
-    cors_origins = [o.strip() for o in cors_origins if o.strip()]
+    cors_origins = os.getenv("CORS_ORIGINS", "").split(",")
+    cors_origins = [o.strip().rstrip("/") for o in cors_origins if o.strip()]
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins,          # <-- allow any origin (fixes Capacitor/Android origins)
+        allow_origins=["https://ask-me-anything-about-yoga-ai.vercel.app"], 
+        allow_origin_regex=r"https://.*\.vercel\.app",                  # <-- allow any origin (fixes Capacitor/Android origins)
         allow_credentials=False,      # <-- keep False with "*"
         allow_methods=["*"],
         allow_headers=["*"],

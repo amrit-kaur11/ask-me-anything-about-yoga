@@ -1,6 +1,7 @@
 // frontend/src/api.js
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
+if (!API_BASE) throw new Error("Missing VITE_API_BASE_URL in frontend env");
 
 async function request(path, { method = "GET", body, headers, ...rest } = {}) {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
