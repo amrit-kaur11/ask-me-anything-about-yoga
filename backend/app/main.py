@@ -32,7 +32,7 @@ def _load_env() -> None:
     candidates = [
         BACKEND_DIR / "storage" / ".env",
         BACKEND_DIR / ".env",
-        ".env",
+        Path(".env"),  # Fixed: Wrap in Path()
     ]
     for p in candidates:
         if p.exists():
