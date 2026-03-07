@@ -1,65 +1,67 @@
-import asyncio
-from dataclasses import dataclass
+from __future__ import annotations
+
+import os
 from typing import List
 
-from embedder import Embedder
-from index import get_chroma_client, get_collection
+import chromadb
+from chromadb.config import Settings
 
+from .embedder import Embedder
+from .index import get_chroma_client, get_collection, DEFAULT_COLLECTION  # Fixed: relative import
+from .chunker import Chunk  # Added for inheritance consistency
 
-@dataclass(frozen=True)
-class RetrievedChunk:
-    chunk_id: str
-    article_id: str
-    title: str
-    source: str
-    text: str
+class RetrievedChunk(Chunk):
     score: float
 
+    class Config:
+        from_attributes = True
 
 class Retriever:
-    def __init__(self, index_dir: str, embedder: Embedder, top_k: int = 5):
-        self.persist_dir = index_dir
+    def __init__(
+        self,
+        index_dir: str,
+        embedder: Embedder,
+        top_k: int = 5,
+    ) -> None:
         self.embedder = embedder
         self.top_k = top_k
+        self.persist_dir = os.path.abspath(index_dir)
+        self.client = self._get_chroma_client()
+        self.collection = self._get_or_create_collection()
 
-        client = get_chroma_client(self.persist_dir)
-        self.collection = get_collection(client)
+    def _get_chroma_client(self) -> chromadb.Client:
+        settings = Settings(
+            chroma_db_impl="duckdb+parquet",
+            persist_directory=self.persist_dir,
+            anonymized_telemetry=False,
+        )
+        return chromadb.Client(settings)
+
+    def _get_or_create_collection(self):
+        return self.client.get_or_create_collection(
+            name=DEFAULT_COLLECTION,
+            metadata={"hnsw:space": "cosine"},
+        )
 
     def retrieve(self, query: str) -> List[RetrievedChunk]:
-        q_emb = self.embedder.embed_query(query)[0].tolist()
-
-        res = self.collection.query(
-            query_embeddings=[q_emb],
+        query_emb = self.embedder.embed_text(query).reshape(1, -1)  # Fixed: embed_text, reshape for Chroma
+        results = self.collection.query(
+            query_embeddings=query_emb.astype(float).tolist(),
             n_results=self.top_k,
             include=["documents", "metadatas", "distances"],
         )
-
-        # Chroma returns nested lists: one list per query
-        ids = res.get("ids", [[]])[0]
-        docs = res.get("documents", [[]])[0]
-        metas = res.get("metadatas", [[]])[0]
-        dists = res.get("distances", [[]])[0]
-
-        results: List[RetrievedChunk] = []
-        for chunk_id, doc, meta, dist in zip(ids, docs, metas, dists):
-            # With cosine distance: lower is better. Convert to a similarity-like score.
-            score = 1.0 - float(dist)
-
-            results.append(
-                RetrievedChunk(
-                    chunk_id=str(chunk_id),
-                    article_id=str(meta.get("article_id", "")),
-                    title=str(meta.get("title", "")),
-                    source=str(meta.get("source", "")),
-                    text=str(doc or ""),
-                    score=score,
-                )
+        chunks = []
+        for doc, meta, dist in zip(
+            results["documents"][0] or [],
+            results["metadatas"][0] or [],
+            results["distances"][0] or [],
+        ):
+            chunk = Chunk(
+                chunk_id=meta.get("chunk_id", ""),
+                article_id=meta.get("article_id", ""),
+                title=meta.get("title", ""),
+                source=meta.get("source", ""),
+                text=doc or "",
             )
-
-        return results
-
-    async def aretrieve(self, query: str) -> List[RetrievedChunk]:
-        """
-        Async wrapper for retrieve, running in a thread pool to avoid blocking the event loop.
-        """
-        return await asyncio.to_thread(self.retrieve, query)
+            chunks.append(RetrievedChunk(**chunk.dict(), score=1 - dist))
+        return chunks
