@@ -3,23 +3,26 @@ from __future__ import annotations
 import os
 import time
 import uuid
+import traceback
 from pathlib import Path
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Load env if needed
+load_dotenv(Path(__file__).resolve().parents[1] / "storage" / ".env")
 
 from app.db import Mongo, attach_feedback, log_request, utc_now
 from app.safety import check_safety, unsafe_response_text
 from app.rag.retriever import Retriever, RetrievedChunk
 from app.rag.generator import Generator
 
-# Ensure env is loaded when this module is imported (important for startup config)
-load_dotenv(Path(__file__).resolve().parents[1] / "storage" / ".env")
-
 router = APIRouter()
-
 
 # -------------------------
 # Request / Response Models
@@ -85,6 +88,7 @@ async def ask(
     start = time.time()
     query = payload.query.strip()
     request_id = str(uuid.uuid4())
+    logger.info(f"[ASK] {request_id}: {query}")
 
     # 🔐 Safety detection (system-level, BEFORE generation)
     safety = check_safety(query)
@@ -98,22 +102,8 @@ async def ask(
         # Retrieval (ALWAYS runs)
         # -------------------------
         retrieved_chunks = retriever.retrieve(query)
+        logger.info(f"[ASK] Retrieved {len(retrieved_chunks)} chunks")
 
-        # Debug prints (useful for demo & evaluation)
-        print("[ASK] query =", query)
-        print("[ASK] index_dir =", getattr(retriever, "index_dir", None))
-        print("[ASK] hits =", len(retrieved_chunks))
-        if retrieved_chunks:
-            print(
-                "[ASK] top =",
-                retrieved_chunks[0].title,
-                "score =",
-                getattr(retrieved_chunks[0], "score", None),
-            )
-
-        # -------------------------
-        # Generation (RAG)
-        # -------------------------
         answer = generator.generate(query, retrieved_chunks)
 
         # -------------------------
@@ -144,6 +134,7 @@ async def ask(
         ]
 
     except Exception as e:
+        logger.error(f"[ASK] Error: {e}")
         raise HTTPException(status_code=500, detail=f"RAG pipeline error: {e}")
 
     # -------------------------
@@ -174,8 +165,8 @@ async def ask(
         ],
         "answer": answer,
         "latency_ms": latency_ms,
-        "llm_primary": os.getenv("OLLAMA_MODEL_PRIMARY", ""),
-        "llm_fallback": os.getenv("OLLAMA_MODEL_FALLBACK", ""),
+        "llm_primary": os.getenv("GROQ_MODEL_PRIMARY", ""),
+        "llm_fallback": os.getenv("GROQ_MODEL_FALLBACK", ""),
         "created_at": utc_now(),
     }
     await log_request(mongo, log_doc)

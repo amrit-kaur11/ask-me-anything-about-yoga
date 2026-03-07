@@ -4,10 +4,10 @@ import os
 from dataclasses import dataclass
 from typing import List
 
-from groq import Groq
+from groq import AsyncGroq
 
-from app.rag.prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
-from app.rag.retriever import RetrievedChunk
+from .prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from .retriever import RetrievedChunk
 
 
 @dataclass
@@ -30,12 +30,12 @@ class Generator:
         return "\n---\n".join(parts).strip()
 
 
-    def _groq_chat(self, model: str, system: str, user: str) -> str:
+    async def _groq_chat(self, model: str, system: str, user: str) -> str:
         """
-        Uses Groq API instead of Ollama.
+        Uses AsyncGroq API instead of synchronous Groq.
         """
 
-        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
         full_prompt = f"""
 {system}
@@ -52,7 +52,7 @@ USER QUESTION:
 {user}
 """.strip()
 
-        chat_completion = client.chat.completions.create(
+        chat_completion = await client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": full_prompt},
@@ -63,7 +63,7 @@ USER QUESTION:
 
         return chat_completion.choices[0].message.content.strip()
 
-    def generate(self, question: str, chunks: List[RetrievedChunk]) -> str:
+    async def generate(self, question: str, chunks: List[RetrievedChunk]) -> str:
         context = self._build_context(chunks)
         user_prompt = USER_PROMPT_TEMPLATE.format(
             question=question,
@@ -71,11 +71,11 @@ USER QUESTION:
         )
 
         try:
-            return self._groq_chat(self.model_primary, SYSTEM_PROMPT, user_prompt)
+            return await self._groq_chat(self.model_primary, SYSTEM_PROMPT, user_prompt)
         except Exception as e:
             print("GROQ PRIMARY ERROR:", e)
             try:
-                return self._groq_chat(self.model_fallback, SYSTEM_PROMPT, user_prompt)
+                return await self._groq_chat(self.model_fallback, SYSTEM_PROMPT, user_prompt)
             except Exception as e:
                 print("GROQ FALLBACK ERROR:", e)
                 used_ids = ", ".join([c.chunk_id for c in chunks[:3]]) if chunks else "none"

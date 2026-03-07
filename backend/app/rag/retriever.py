@@ -1,10 +1,9 @@
-from __future__ import annotations
-
+import asyncio
 from dataclasses import dataclass
 from typing import List
 
-from app.rag.embedder import Embedder
-from app.rag.index import get_chroma_client, get_collection
+from embedder import Embedder
+from index import get_chroma_client, get_collection
 
 
 @dataclass(frozen=True)
@@ -58,3 +57,9 @@ class Retriever:
             )
 
         return results
+
+    async def aretrieve(self, query: str) -> List[RetrievedChunk]:
+        """
+        Async wrapper for retrieve, running in a thread pool to avoid blocking the event loop.
+        """
+        return await asyncio.to_thread(self.retrieve, query)
