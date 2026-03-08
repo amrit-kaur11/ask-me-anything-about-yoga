@@ -101,6 +101,17 @@ async def ask(
         # -------------------------
         # Retrieval (ALWAYS runs)
         # -------------------------
+        if not hasattr(request.app.state, 'embedder') or not hasattr(request.app.state, 'retriever'):
+            embedder = Embedder(sbert_model_name=request.app.state.sbert_model)
+            embedder.embed_texts(["Warmup embed"])  # Preload once
+            index_dir = os.getenv("INDEX_DIR", "./storage")
+            top_k = int(os.getenv("TOP_K", "5"))
+            retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
+            _build_index_if_empty(retriever, embedder)  # From main.py, import if needed
+            request.app.state.embedder = embedder
+            request.app.state.retriever = retriever
+            logger.info("Embedder/Retriever lazy-loaded")
+        retriever = request.app.state.retriever
         retrieved_chunks = retriever.retrieve(query)
         logger.info(f"[ASK] Retrieved {len(retrieved_chunks)} chunks")
 
