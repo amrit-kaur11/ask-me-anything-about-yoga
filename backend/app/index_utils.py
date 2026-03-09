@@ -82,7 +82,7 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
         collection.add(
             ids=[c.chunk_id for c in chunks],
             documents=texts,
-            metadatas=[{"article_id": c.article_id, "title": c.title, "source": c.source} for c in chunks],
+            metadatas=[{"chunk_id": c.chunk_id, "article_id": c.article_id, "title": c.title, "source": c.source} for c in chunks],
             embeddings=embs.astype(float).tolist(),
         )
         logger.info(f"Built index: {len(chunks)} chunks in {retriever.persist_dir}")

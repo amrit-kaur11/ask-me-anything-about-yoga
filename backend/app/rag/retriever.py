@@ -3,18 +3,15 @@ from __future__ import annotations
 import os
 from typing import List
 
-import chromadb
-from chromadb.config import Settings
-
 from .embedder import Embedder
 from .index import get_chroma_client, get_collection, DEFAULT_COLLECTION  # Fixed: relative import
 from .chunker import Chunk  # Added for inheritance consistency
 
-class RetrievedChunk(Chunk):
-    score: float
+from dataclasses import dataclass
 
-    class Config:
-        from_attributes = True
+@dataclass(frozen=True)
+class RetrievedChunk(Chunk):
+    score: float = 0.0
 
 class Retriever:
     def __init__(
@@ -29,22 +26,14 @@ class Retriever:
         self.client = self._get_chroma_client()
         self.collection = self._get_or_create_collection()
 
-    def _get_chroma_client(self) -> chromadb.Client:
-        settings = Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory=self.persist_dir,
-            anonymized_telemetry=False,
-        )
-        return chromadb.Client(settings)
+    def _get_chroma_client(self):
+        return get_chroma_client(self.persist_dir)
 
     def _get_or_create_collection(self):
-        return self.client.get_or_create_collection(
-            name=DEFAULT_COLLECTION,
-            metadata={"hnsw:space": "cosine"},
-        )
+        return get_collection(self.client, DEFAULT_COLLECTION)
 
     def retrieve(self, query: str) -> List[RetrievedChunk]:
-        query_emb = self.embedder.embed_text(query).reshape(1, -1)  # Fixed: embed_text, reshape for Chroma
+        query_emb = self.embedder.embed_query(query)
         results = self.collection.query(
             query_embeddings=query_emb.astype(float).tolist(),
             n_results=self.top_k,
@@ -63,5 +52,5 @@ class Retriever:
                 source=meta.get("source", ""),
                 text=doc or "",
             )
-            chunks.append(RetrievedChunk(**chunk.dict(), score=1 - dist))
+            chunks.append(RetrievedChunk(chunk_id=chunk.chunk_id, article_id=chunk.article_id, title=chunk.title, source=chunk.source, text=chunk.text, score=1 - dist))
         return chunks

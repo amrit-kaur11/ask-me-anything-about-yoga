@@ -85,6 +85,7 @@ def get_generator(request: Request) -> Generator:
 
 @router.post("/ask", response_model=AskResponse)
 async def ask(
+    request: Request,
     payload: AskRequest,
     mongo: Mongo = Depends(get_mongo),
     retriever: Retriever = Depends(get_retriever),
@@ -106,29 +107,24 @@ async def ask(
         # -------------------------
         # Retrieval (ALWAYS runs)
         # -------------------------
-        if not hasattr(request.app.state, "embedder") or request.app.state.embedder is None:
-            sbert_model = getattr(
-                request.app.state,
-                "sbert_model",
-                os.getenv("SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2").strip(),
-            )
-            embedder = Embedder(sbert_model_name=sbert_model)
+        if request.app.state.embedder is None:
+            embedder = Embedder(sbert_model_name=request.app.state.sbert_model)
             request.app.state.embedder = embedder
         else:
             embedder = request.app.state.embedder
 
-        if not hasattr(request.app.state, "retriever") or request.app.state.retriever is None:
-            index_dir = getattr(request.app.state, "index_dir", os.getenv("INDEX_DIR", "./storage"))
-            top_k = getattr(request.app.state, "top_k", int(os.getenv("TOP_K", "5")))
-            retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
+        if request.app.state.retriever is None:
+            retriever = Retriever(
+                index_dir=request.app.state.index_dir, 
+                embedder=embedder, 
+                top_k=request.app.state.top_k,
+            )
             request.app.state.retriever = retriever
         else:
             retriever = request.app.state.retriever
 
         if retriever.collection.count() == 0:
-            logger.info("Index empty, building on first request...")
             build_index_if_empty(retriever, embedder)
-            retriever = request.app.state.retriever
         retrieved_chunks = retriever.retrieve(query)
         logger.info(f"[ASK] Retrieved {len(retrieved_chunks)} chunks")
 
@@ -197,7 +193,8 @@ async def ask(
         "llm_fallback": os.getenv("GROQ_MODEL_FALLBACK", ""),
         "created_at": utc_now(),
     }
-    await log_request(mongo, log_doc)
+    if mongo is not None:
+        await log_request(mongo, log_doc)
 
     return AskResponse(
         request_id=request_id,
@@ -217,5 +214,7 @@ async def feedback(
     payload: FeedbackRequest,
     mongo: Mongo = Depends(get_mongo),
 ) -> FeedbackResponse:
+    if mongo is None:
+        raise HTTPException(status_code=503, detail="Feedback storage unavailable")
     await attach_feedback(mongo, payload.request_id, payload.rating, payload.comment)
     return FeedbackResponse(ok=True)

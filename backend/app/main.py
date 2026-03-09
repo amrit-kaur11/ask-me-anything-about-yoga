@@ -101,7 +101,7 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
         collection.add(
             ids=[c.chunk_id for c in chunks],
             documents=texts,
-            metadatas=[{"article_id": c.article_id, "title": c.title, "source": c.source} for c in chunks],
+            metadatas=[{"chunk_id": c.chunk_id,"article_id": c.article_id, "title": c.title, "source": c.source} for c in chunks],
             embeddings=embs.astype(float).tolist(),
         )
         logger.info(f"Built index: {len(chunks)} chunks in {retriever.persist_dir}")
@@ -137,23 +137,20 @@ def create_app() -> FastAPI:
             await ensure_indexes(mongo)
             app.state.mongo = mongo
             logger.info("Mongo ready")
+        except Exception as e:
+            app.state.mongo = None
+            logger.warning(f"Mongo unavailable, continuing without logging: {e}")    
 
             # Embeddings
-            sbert_model = os.getenv(
+            app.state.sbert_model = os.getenv(
                 "SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2").strip()
-            app.state.sbert_model = sbert_model
-            embedder = Embedder(sbert_model_name=sbert_model)
-            app.state.embedder = embedder
 
             # Retriever
-            index_dir = os.getenv("INDEX_DIR", os.path.join("backend", "storage"))
-            top_k = int(os.getenv("TOP_K", "5"))
-            app.state.index_dir = index_dir
-            app.state.top_k = top_k
+            app.state.index_dir = os.getenv("INDEX_DIR", os.path.join("backend", "storage"))
+            app.state.top_k = int(os.getenv("TOP_K", "5"))
             
-            retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
-            app.state.retriever = retriever
-
+            app.state.embedder = None
+            app.state.retriever = None
             app.state.generator = generator_from_env()
             logger.info("Generator ready")
         except Exception as e:
@@ -163,7 +160,9 @@ def create_app() -> FastAPI:
     # FastAPI lifecycle hook
     @app.on_event("shutdown")
     async def shutdown():
-        app.state.mongo.client.close()
+        mongo = getattr(app.state, "mongo", None)
+        if mongo is not None:
+            mongo.client.close()
 
     return app
 
