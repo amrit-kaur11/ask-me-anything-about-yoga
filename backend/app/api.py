@@ -72,7 +72,7 @@ def get_mongo(request: Request) -> Mongo:
 
 
 def get_retriever(request: Request) -> Retriever:
-    return request.app.state.retriever
+    return getattr(request.app.state, "retriever", None)
 
 
 def get_generator(request: Request) -> Generator:
@@ -88,7 +88,6 @@ async def ask(
     request: Request,
     payload: AskRequest,
     mongo: Mongo = Depends(get_mongo),
-    retriever: Retriever = Depends(get_retriever),
     generator: Generator = Depends(get_generator),
 ) -> AskResponse:
     start = time.time()
