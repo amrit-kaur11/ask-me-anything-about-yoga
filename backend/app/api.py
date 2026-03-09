@@ -19,6 +19,8 @@ load_dotenv(Path(__file__).resolve().parents[1] / "storage" / ".env")
 
 from app.db import Mongo, attach_feedback, log_request, utc_now
 from app.safety import check_safety, unsafe_response_text
+from app.rag.embedder import Embedder
+from app.main import _build_index_if_empty
 from app.rag.retriever import Retriever, RetrievedChunk
 from app.rag.generator import Generator
 
@@ -115,7 +117,7 @@ async def ask(
         retrieved_chunks = retriever.retrieve(query)
         logger.info(f"[ASK] Retrieved {len(retrieved_chunks)} chunks")
 
-        answer = generator.generate(query, retrieved_chunks)
+        answer = await generator.generate(query, retrieved_chunks)
 
         # -------------------------
         # Enforce safety framing AFTER generation

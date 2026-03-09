@@ -140,11 +140,11 @@ def create_app() -> FastAPI:
 
             # Embeddings
             sbert_model = os.getenv(
-                "SBERT_MODEL", "all-MiniLM-L6-v2").strip()
+                "SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2").strip()
             embedder = Embedder(sbert_model_name=sbert_model)
             # Pre-load model
             embedder.embed_texts(["Warmup embed"])
-            logger.info("Embedder ready")
+            app.state.embedder = embedder
 
             # Retriever
             index_dir = os.getenv("INDEX_DIR", os.path.join("backend", "storage"))
@@ -152,7 +152,6 @@ def create_app() -> FastAPI:
             app.state.retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
             _build_index_if_empty(retriever, embedder)
             app.state.retriever = retriever
-            logger.info("Retriever ready")
 
             app.state.generator = generator_from_env()
             logger.info("Generator ready")
