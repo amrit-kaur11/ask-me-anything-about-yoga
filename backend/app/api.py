@@ -106,30 +106,29 @@ async def ask(
         # -------------------------
         # Retrieval (ALWAYS runs)
         # -------------------------
-        if not hasattr(request.app.state, 'embedder') or not hasattr(request.app.state, 'retriever'):
-            # Initialise a fresh embedder and retriever on demand.  We do not
-            # rely on request.app.state.sbert_model here because that field
-            # isn't set during startup.  Instead, fall back to the same
-            # environment variable used in the startup routine.
-            sbert_model = os.getenv(
-                "SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2"
-            ).strip()
+        if not hasattr(request.app.state, "embedder") or request.app.state.embedder is None:
+            sbert_model = getattr(
+                request.app.state,
+                "sbert_model",
+                os.getenv("SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2").strip(),
+            )
             embedder = Embedder(sbert_model_name=sbert_model)
-            # Preload the model once to avoid cold start latency on the first call.
-            embedder.embed_texts(["Warmup embed"])
-
-            index_dir = os.getenv("INDEX_DIR", "./storage")
-            top_k = int(os.getenv("TOP_K", "5"))
-            retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
-            # Use the helper from index_utils to build an index only if no
-            # documents are currently indexed.  This avoids the circular
-            # import that previously existed when `_build_index_if_empty` was
-            # referenced from main.py.
-            build_index_if_empty(retriever, embedder)
             request.app.state.embedder = embedder
+        else:
+            embedder = request.app.state.embedder
+
+        if not hasattr(request.app.state, "retriever") or request.app.state.retriever is None:
+            index_dir = getattr(request.app.state, "index_dir", os.getenv("INDEX_DIR", "./storage"))
+            top_k = getattr(request.app.state, "top_k", int(os.getenv("TOP_K", "5")))
+            retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
             request.app.state.retriever = retriever
-            logger.info("Embedder/Retriever lazy-loaded")
-        retriever = request.app.state.retriever
+        else:
+            retriever = request.app.state.retriever
+
+        if retriever.collection.count() == 0:
+            logger.info("Index empty, building on first request...")
+            build_index_if_empty(retriever, embedder)
+            retriever = request.app.state.retriever
         retrieved_chunks = retriever.retrieve(query)
         logger.info(f"[ASK] Retrieved {len(retrieved_chunks)} chunks")
 
