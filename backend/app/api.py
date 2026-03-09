@@ -20,7 +20,10 @@ load_dotenv(Path(__file__).resolve().parents[1] / "storage" / ".env")
 from app.db import Mongo, attach_feedback, log_request, utc_now
 from app.safety import check_safety, unsafe_response_text
 from app.rag.embedder import Embedder
-from app.main import _build_index_if_empty
+# Prefer relative imports within the `app` package.  Using a relative
+# import here avoids confusion in some IDEs and keeps all modules
+# consistently resolved from the package root.
+from .index_utils import build_index_if_empty
 from app.rag.retriever import Retriever, RetrievedChunk
 from app.rag.generator import Generator
 
@@ -104,12 +107,25 @@ async def ask(
         # Retrieval (ALWAYS runs)
         # -------------------------
         if not hasattr(request.app.state, 'embedder') or not hasattr(request.app.state, 'retriever'):
-            embedder = Embedder(sbert_model_name=request.app.state.sbert_model)
-            embedder.embed_texts(["Warmup embed"])  # Preload once
+            # Initialise a fresh embedder and retriever on demand.  We do not
+            # rely on request.app.state.sbert_model here because that field
+            # isn't set during startup.  Instead, fall back to the same
+            # environment variable used in the startup routine.
+            sbert_model = os.getenv(
+                "SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2"
+            ).strip()
+            embedder = Embedder(sbert_model_name=sbert_model)
+            # Preload the model once to avoid cold start latency on the first call.
+            embedder.embed_texts(["Warmup embed"])
+
             index_dir = os.getenv("INDEX_DIR", "./storage")
             top_k = int(os.getenv("TOP_K", "5"))
             retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
-            _build_index_if_empty(retriever, embedder)  # From main.py, import if needed
+            # Use the helper from index_utils to build an index only if no
+            # documents are currently indexed.  This avoids the circular
+            # import that previously existed when `_build_index_if_empty` was
+            # referenced from main.py.
+            build_index_if_empty(retriever, embedder)
             request.app.state.embedder = embedder
             request.app.state.retriever = retriever
             logger.info("Embedder/Retriever lazy-loaded")

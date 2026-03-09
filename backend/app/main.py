@@ -21,6 +21,7 @@ from app.rag.retriever import Retriever
 from app.rag.generator import from_env as generator_from_env
 from app.rag.chunker import chunk_text, Chunk
 from app.rag.index import get_chroma_client, get_collection, DEFAULT_COLLECTION
+from app.index_utils import build_index_if_empty
 import re  # For build
 
 logging.basicConfig(level=logging.INFO)
@@ -41,7 +42,7 @@ def _load_env() -> None:
             return
     logger.warning("No .env found")
 
-def _build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
+def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
     """Auto-build Chroma if empty (runs once on startup)."""
     try:
         count = retriever.collection.count()
@@ -112,11 +113,10 @@ def create_app() -> FastAPI:
     _load_env()
 
     app = FastAPI(title="AskMe AI - Yoga RAG")
+    cors_origins = os.getenv("CORS_ORIGINS", "").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["https://ask-me-anything-about-yoga-ai.vercel.app", "https://*.vercel.app"], 
-        allow_origin_regex = r"https://.*\.vercel\.app",
-        allow_credentials=False,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -149,8 +149,8 @@ def create_app() -> FastAPI:
             # Retriever
             index_dir = os.getenv("INDEX_DIR", os.path.join("backend", "storage"))
             top_k = int(os.getenv("TOP_K", "5"))
-            app.state.retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
-            _build_index_if_empty(retriever, embedder)
+            retriever = Retriever(index_dir=index_dir, embedder=embedder, top_k=top_k)
+            build_index_if_empty(retriever, embedder)
             app.state.retriever = retriever
 
             app.state.generator = generator_from_env()
