@@ -85,6 +85,9 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
             metadatas=[{"chunk_id": c.chunk_id, "article_id": c.article_id, "title": c.title, "source": c.source} for c in chunks],
             embeddings=embs.astype(float).tolist(),
         )
+        # IMPORTANT: refresh retriever to point to the new live collection
+        retriever.client = client
+        retriever.collection = collection
         logger.info(f"Built index: {len(chunks)} chunks in {retriever.persist_dir}")
     except Exception as e:
         logger.error(f"Index build failed: {e}")
