@@ -1,21 +1,17 @@
 #!/bin/bash
+set -e
+
+# Debug: show where we are and what files exist
+echo "Current directory: $(pwd)"
+find . -name "requirements.txt" 2>/dev/null
+
+# Install from wherever requirements.txt is found
 pip install -r storage/requirements.txt
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')"
-```
 
-Then in Render → Settings → **Build Command**, set:
-```
-chmod +x render-build.sh && ./render-build.sh
-```
-
-This downloads the model once during build and caches it in the image, so startup is instant.
-
----
-
-**Fix 2: Set HuggingFace cache env var on Render**
-
-In Render → Environment, add:
-```
-TRANSFORMERS_CACHE=/opt/render/project/src/.cache
-HF_HOME=/opt/render/project/src/.cache
-SENTENCE_TRANSFORMERS_HOME=/opt/render/project/src/.cache
+python -c "
+import os
+os.environ['SENTENCE_TRANSFORMERS_HOME'] = '/opt/render/project/src/.cache'
+from sentence_transformers import SentenceTransformer
+SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
+print('Model cached successfully')
+"
