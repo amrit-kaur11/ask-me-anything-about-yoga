@@ -1,26 +1,36 @@
 // frontend/src/api.js
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
-if (!API_BASE) throw new Error("Missing VITE_API_BASE_URL in frontend env");
+const API_BASE = (
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+).replace(/\/$/, "");
 
 async function request(path, { method = "GET", body, headers, ...rest } = {}) {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
 
-  const res = await fetch(`${API_BASE}${cleanPath}`, {
-    method,
-    mode: "cors",
-    headers: {
-      Accept: "application/json",
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(headers || {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    ...rest,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${cleanPath}`, {
+      method,
+      mode: "cors",
+      headers: {
+        Accept: "application/json",
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(headers || {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+      ...rest,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
+  const text = await res.text();
+  throw new Error(`API error ${res.status}: ${text}`);
   }
 
   return res.json();

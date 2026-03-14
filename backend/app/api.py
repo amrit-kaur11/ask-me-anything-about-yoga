@@ -3,29 +3,25 @@ from __future__ import annotations
 import os
 import time
 import uuid
-import traceback
+import logging
 from pathlib import Path
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-import logging
+
+from app.db import Mongo, attach_feedback, log_request, utc_now
+from app.safety import check_safety
+from app.rag.embedder import Embedder
+from .index_utils import build_index_if_empty
+from app.rag.retriever import Retriever, RetrievedChunk
+from app.rag.generator import Generator
 
 logger = logging.getLogger(__name__)
 
 # Load env if needed
 load_dotenv(Path(__file__).resolve().parents[1] / "storage" / ".env")
-
-from app.db import Mongo, attach_feedback, log_request, utc_now
-from app.safety import check_safety, unsafe_response_text
-from app.rag.embedder import Embedder
-# Prefer relative imports within the `app` package.  Using a relative
-# import here avoids confusion in some IDEs and keeps all modules
-# consistently resolved from the package root.
-from .index_utils import build_index_if_empty
-from app.rag.retriever import Retriever, RetrievedChunk
-from app.rag.generator import Generator
 
 router = APIRouter()
 
@@ -67,16 +63,16 @@ class FeedbackResponse(BaseModel):
 # Dependency helpers
 # -------------------------
 
-def get_mongo(request: Request) -> Mongo:
-    return request.app.state.mongo
+def get_mongo(request: Request) -> Optional[Mongo]:
+    return getattr(request.app.state, "mongo", None)
 
 
-def get_retriever(request: Request) -> Retriever:
+def get_retriever(request: Request) -> Optional[Retriever]:
     return getattr(request.app.state, "retriever", None)
 
 
-def get_generator(request: Request) -> Generator:
-    return request.app.state.generator
+def get_generator(request: Request) -> Optional[Generator]:
+    return getattr(request.app.state, "generator", None)
 
 
 # -------------------------
@@ -87,15 +83,15 @@ def get_generator(request: Request) -> Generator:
 async def ask(
     request: Request,
     payload: AskRequest,
-    mongo: Mongo = Depends(get_mongo),
-    generator: Generator = Depends(get_generator),
+    mongo: Optional[Mongo] = Depends(get_mongo),
+    generator: Optional[Generator] = Depends(get_generator),
 ) -> AskResponse:
     start = time.time()
     query = payload.query.strip()
     request_id = str(uuid.uuid4())
     logger.info(f"[ASK] {request_id}: {query}")
 
-    # 🔐 Safety detection (system-level, BEFORE generation)
+    # Safety detection BEFORE generation
     safety = check_safety(query)
 
     sources: List[SourceItem] = []
@@ -104,18 +100,18 @@ async def ask(
 
     try:
         # -------------------------
-        # Retrieval (ALWAYS runs)
+        # Retrieval
         # -------------------------
-        if request.app.state.embedder is None:
+        if getattr(request.app.state, "embedder", None) is None:
             embedder = Embedder(sbert_model_name=request.app.state.sbert_model)
             request.app.state.embedder = embedder
         else:
             embedder = request.app.state.embedder
 
-        if request.app.state.retriever is None:
+        if getattr(request.app.state, "retriever", None) is None:
             retriever = Retriever(
-                index_dir=request.app.state.index_dir, 
-                embedder=embedder, 
+                index_dir=request.app.state.index_dir,
+                embedder=embedder,
                 top_k=request.app.state.top_k,
             )
             request.app.state.retriever = retriever
@@ -124,21 +120,28 @@ async def ask(
 
         if retriever.collection.count() == 0:
             build_index_if_empty(retriever, embedder)
+
         retrieved_chunks = retriever.retrieve(query)
         logger.info(f"[ASK] Retrieved {len(retrieved_chunks)} chunks")
+
+        # -------------------------
+        # Generation
+        # -------------------------
+        if generator is None:
+            raise HTTPException(status_code=503, detail="Generator unavailable")
 
         answer = await generator.generate(query, retrieved_chunks)
 
         # -------------------------
-        # Enforce safety framing AFTER generation
+        # Safety framing AFTER generation
         # -------------------------
         if safety.is_unsafe:
             answer = (
                 "⚠️ **Medical Safety Notice**\n\n"
                 "This response is provided for general wellness education only and "
                 "is **not medical advice**.\n\n"
-                + answer +
-                "\n\nPlease consult a qualified healthcare professional or a certified "
+                + answer
+                + "\n\nPlease consult a qualified healthcare professional or a certified "
                 "yoga therapist before attempting any breathing or physical practices."
             )
 
@@ -156,8 +159,10 @@ async def ask(
             for c in retrieved_chunks
         ]
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"[ASK] Error: {e}")
+        logger.exception(f"[ASK] Error: {e}")
         raise HTTPException(status_code=500, detail=f"RAG pipeline error: {e}")
 
     # -------------------------
@@ -192,6 +197,7 @@ async def ask(
         "llm_fallback": os.getenv("GROQ_MODEL_FALLBACK", ""),
         "created_at": utc_now(),
     }
+
     if mongo is not None:
         await log_request(mongo, log_doc)
 
@@ -211,9 +217,10 @@ async def ask(
 @router.post("/feedback", response_model=FeedbackResponse)
 async def feedback(
     payload: FeedbackRequest,
-    mongo: Mongo = Depends(get_mongo),
+    mongo: Optional[Mongo] = Depends(get_mongo),
 ) -> FeedbackResponse:
     if mongo is None:
         raise HTTPException(status_code=503, detail="Feedback storage unavailable")
+
     await attach_feedback(mongo, payload.request_id, payload.rating, payload.comment)
     return FeedbackResponse(ok=True)

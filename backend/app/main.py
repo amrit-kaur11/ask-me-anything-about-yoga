@@ -142,7 +142,8 @@ def create_app() -> FastAPI:
             app.state.mongo = None
             logger.warning(f"Mongo unavailable, continuing without logging: {e}")    
 
-            # Embeddings
+        # App state — always runs, regardless of Mongo
+        try:
             app.state.sbert_model = os.getenv(
                 "SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2").strip()
 
