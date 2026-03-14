@@ -151,8 +151,19 @@ def create_app() -> FastAPI:
             app.state.index_dir = os.getenv("INDEX_DIR", os.path.join("backend", "storage"))
             app.state.top_k = int(os.getenv("TOP_K", "5"))
             
-            app.state.embedder = None
-            app.state.retriever = None
+            # Build embedder + retriever + index AT STARTUP
+            embedder = Embedder(sbert_model_name=app.state.sbert_model)
+            app.state.embedder = embedder
+
+            retriever = Retriever(
+                index_dir=app.state.index_dir,
+                embedder=embedder,
+                top_k=app.state.top_k,
+            )
+            app.state.retriever = retriever
+
+            # Build index now, not on first request
+            build_index_if_empty(retriever, embedder)
             app.state.generator = generator_from_env()
             logger.info("Generator ready")
         except Exception as e:
