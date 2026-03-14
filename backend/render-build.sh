@@ -1,5 +1,5 @@
 #!/bin/bash
-pip install -r storage\requirements.txt
+pip install -r storage/requirements.txt
 python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')"
 ```
 
