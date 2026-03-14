@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -21,19 +24,16 @@ from app.rag.retriever import Retriever
 from app.rag.generator import from_env as generator_from_env
 from app.rag.chunker import chunk_text, Chunk
 from app.rag.index import get_chroma_client, get_collection, DEFAULT_COLLECTION
-from app.index_utils import build_index_if_empty
-import re  # For build
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 
 def _load_env() -> None:
     candidates = [
         BACKEND_DIR / "storage" / ".env",
         BACKEND_DIR / ".env",
-        Path(".env"),  # Fixed: Wrap in Path()
+        Path(".env"),
     ]
     for p in candidates:
         if p.exists():
@@ -41,6 +41,7 @@ def _load_env() -> None:
             logger.info(f"Loaded env from {p}")
             return
     logger.warning("No .env found")
+
 
 def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
     """Auto-build Chroma if empty (runs once on startup)."""
@@ -82,7 +83,14 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
                 if line.lower().startswith("source:"):
                     source = line.split(":", 1)[1].strip()
                     break
-            chunks.extend(chunk_text(article_id=article_id, title=title, source=source, text=text, max_chars=900, overlap=180))
+            chunks.extend(chunk_text(
+                article_id=article_id,
+                title=title,
+                source=source,
+                text=text,
+                max_chars=900,
+                overlap=180,
+            ))
 
         if not chunks:
             logger.warning("No chunks to index")
@@ -95,13 +103,18 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
         client = get_chroma_client(retriever.persist_dir)
         try:
             client.delete_collection(DEFAULT_COLLECTION)
-        except:
+        except Exception:
             pass
         collection = get_collection(client, DEFAULT_COLLECTION)
         collection.add(
             ids=[c.chunk_id for c in chunks],
             documents=texts,
-            metadatas=[{"chunk_id": c.chunk_id,"article_id": c.article_id, "title": c.title, "source": c.source} for c in chunks],
+            metadatas=[{
+                "chunk_id": c.chunk_id,
+                "article_id": c.article_id,
+                "title": c.title,
+                "source": c.source,
+            } for c in chunks],
             embeddings=embs.astype(float).tolist(),
         )
         logger.info(f"Built index: {len(chunks)} chunks in {retriever.persist_dir}")
@@ -109,49 +122,12 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
         logger.error(f"Index build failed: {e}")
 
 
-def create_app() -> FastAPI:
-    _load_env()
+async def _build_index_background(app: FastAPI) -> None:
+    """Build embedder + retriever + index in a thread so startup doesn't block port binding."""
+    try:
+        loop = asyncio.get_event_loop()
 
-    app = FastAPI(title="AskMe AI - Yoga RAG")
-    cors_origins = os.getenv("CORS_ORIGINS", "").split(",")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[o.strip() for o in cors_origins if o.strip()],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-
-    app.include_router(router, prefix="/api")
-
-    # Health check endpoint (used by frontend)
-    @app.get("/health")
-    async def health():
-        return {"ok": True}
-    
-    # FastAPI lifecycle hook
-    @app.on_event("startup")
-    async def startup():
-        try:    
-            mongo = init_mongo()
-            await ensure_indexes(mongo)
-            app.state.mongo = mongo
-            logger.info("Mongo ready")
-        except Exception as e:
-            app.state.mongo = None
-            logger.warning(f"Mongo unavailable, continuing without logging: {e}")    
-
-        # App state — always runs, regardless of Mongo
-        try:
-            app.state.sbert_model = os.getenv(
-                "SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2").strip()
-
-            # Retriever
-            app.state.index_dir = os.getenv("INDEX_DIR", os.path.join("backend", "storage"))
-            app.state.top_k = int(os.getenv("TOP_K", "5"))
-            
-            # Build embedder + retriever + index AT STARTUP
+        def build() -> None:
             embedder = Embedder(sbert_model_name=app.state.sbert_model)
             app.state.embedder = embedder
 
@@ -162,15 +138,74 @@ def create_app() -> FastAPI:
             )
             app.state.retriever = retriever
 
-            # Build index now, not on first request
             build_index_if_empty(retriever, embedder)
+            app.state.index_ready = True
+            logger.info("Index ready")
+
+        with ThreadPoolExecutor() as pool:
+            await loop.run_in_executor(pool, build)
+
+    except Exception as e:
+        logger.error(f"Background index build failed: {e}")
+        app.state.index_ready = False
+
+
+def create_app() -> FastAPI:
+    _load_env()
+
+    app = FastAPI(title="AskMe AI - Yoga RAG")
+
+    cors_origins = os.getenv("CORS_ORIGINS", "").split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(router, prefix="/api")
+
+    @app.get("/health")
+    async def health():
+        return {
+            "ok": True,
+            "index_ready": getattr(app.state, "index_ready", False),
+        }
+
+    @app.on_event("startup")
+    async def startup():
+        # --- Mongo (optional, failure is non-fatal) ---
+        try:
+            mongo = init_mongo()
+            await ensure_indexes(mongo)
+            app.state.mongo = mongo
+            logger.info("Mongo ready")
+        except Exception as e:
+            app.state.mongo = None
+            logger.warning(f"Mongo unavailable, continuing without logging: {e}")
+
+        # --- Core app state (always runs) ---
+        try:
+            app.state.sbert_model = os.getenv(
+                "SBERT_MODEL", "sentence-transformers/paraphrase-MiniLM-L3-v2"
+            ).strip()
+            app.state.index_dir = os.getenv("INDEX_DIR", "storage")
+            app.state.top_k = int(os.getenv("TOP_K", "5"))
+            app.state.embedder = None
+            app.state.retriever = None
+            app.state.index_ready = False  # will flip True when background build finishes
+
             app.state.generator = generator_from_env()
             logger.info("Generator ready")
+
         except Exception as e:
             logger.error(f"Startup failed: {e}")
             raise
 
-    # FastAPI lifecycle hook
+        # --- Build index in background so port binds immediately ---
+        asyncio.create_task(_build_index_background(app))
+
     @app.on_event("shutdown")
     async def shutdown():
         mongo = getattr(app.state, "mongo", None)
