@@ -8,7 +8,7 @@ async function request(path, { method = "GET", body, headers, ...rest } = {}) {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 120000);
 
   let res;
   try {
@@ -38,6 +38,11 @@ async function request(path, { method = "GET", body, headers, ...rest } = {}) {
 
 // App.jsx imports these:
 export async function askYoga(query) {
+  // Wake Render free tier if sleeping
+  try {
+    await fetch(`${API_BASE}/health`, { method: "GET", mode: "cors" });
+  } catch (_) {}
+
   return request("/api/ask", { method: "POST", body: { query } });
 }
 

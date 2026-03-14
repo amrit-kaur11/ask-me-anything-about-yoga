@@ -53,7 +53,12 @@ export default function App() {
       setSafetyReasons(data.safety_reasons || []);
       setRequestId(data.request_id || null);
     } catch (e) {
-      setError(String(e.message || e));
+      const msg = String(e.message || e);
+      if (msg.toLowerCase().includes("abort") || msg.toLowerCase().includes("failed to fetch")) {
+        setError("The server is waking up from sleep. Please wait 30 seconds and try again.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
