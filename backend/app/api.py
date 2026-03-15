@@ -17,6 +17,7 @@ from app.rag.embedder import Embedder
 from .index_utils import build_index_if_empty
 from app.rag.retriever import Retriever, RetrievedChunk
 from app.rag.generator import Generator
+from app.main import BACKEND_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ async def ask(
 
         if getattr(request.app.state, "retriever", None) is None:
             retriever = Retriever(
-                index_dir=request.app.state.index_dir,
+                index_dir=str(BACKEND_DIR / request.app.state.index_dir),
                 embedder=embedder,
                 top_k=request.app.state.top_k,
             )

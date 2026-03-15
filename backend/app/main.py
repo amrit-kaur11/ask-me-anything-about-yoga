@@ -188,7 +188,7 @@ def create_app() -> FastAPI:
 
             # Pre-load retriever pointing to pre-built index on disk
             app.state.retriever = Retriever(
-                index_dir=app.state.index_dir,
+                index_dir=str(BACKEND_DIR / app.state.index_dir),  # ← full absolute path
                 embedder=app.state.embedder,
                 top_k=app.state.top_k,
             )
