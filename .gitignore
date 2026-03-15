@@ -26,8 +26,6 @@ logs/
 .DS_Store
 Thumbs.db
 
-#Chroma/local db 
-backend/storage/chroma.sqlite3
 
 # Node
 frontend/node_modules/
