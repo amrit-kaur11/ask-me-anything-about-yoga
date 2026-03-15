@@ -56,7 +56,6 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
         YOGA_TXT = BACKEND_DIR / "data" / "yoga_docs.txt"
         ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Ensure articles from yoga_docs.txt if empty
         md_files = list(ARTICLES_DIR.glob("*.md"))
         if not md_files and YOGA_TXT.exists():
             raw = YOGA_TXT.read_text(encoding="utf-8", errors="ignore").strip()
@@ -69,7 +68,6 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
                     content = f"# {title}\n\nSource: (add citation link)\n\n{part}\n"
                     (ARTICLES_DIR / f"article_{i:02d}.md").write_text(content, encoding="utf-8")
 
-        # Chunk & embed
         chunks: list[Chunk] = []
         for md_path in sorted(ARTICLES_DIR.glob("*.md")):
             article_id = md_path.stem
@@ -99,7 +97,6 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
         texts = [c.text for c in chunks]
         embs = embedder.embed_texts(texts)
 
-        # Reset & add
         client = get_chroma_client(retriever.persist_dir)
         try:
             client.delete_collection(DEFAULT_COLLECTION)
@@ -123,22 +120,12 @@ def build_index_if_empty(retriever: Retriever, embedder: Embedder) -> None:
 
 
 async def _build_index_background(app: FastAPI) -> None:
-    """Build embedder + retriever + index in a thread so startup doesn't block port binding."""
+    """Build index in background using already-loaded embedder/retriever."""
     try:
         loop = asyncio.get_event_loop()
 
         def build() -> None:
-            embedder = Embedder(sbert_model_name=app.state.sbert_model)
-            app.state.embedder = embedder
-
-            retriever = Retriever(
-                index_dir=app.state.index_dir,
-                embedder=embedder,
-                top_k=app.state.top_k,
-            )
-            app.state.retriever = retriever
-
-            build_index_if_empty(retriever, embedder)
+            build_index_if_empty(app.state.retriever, app.state.embedder)
             app.state.index_ready = True
             logger.info("Index ready")
 
@@ -192,9 +179,28 @@ def create_app() -> FastAPI:
             ).strip()
             app.state.index_dir = os.getenv("INDEX_DIR", "storage")
             app.state.top_k = int(os.getenv("TOP_K", "5"))
-            app.state.embedder = None
-            app.state.retriever = None
-            app.state.index_ready = False  # will flip True when background build finishes
+            app.state.index_ready = False
+
+            # Pre-load embedder so model is in memory before anything else
+            logger.info("Loading embedder model...")
+            app.state.embedder = Embedder(sbert_model_name=app.state.sbert_model)
+            logger.info("Embedder ready")
+
+            # Pre-load retriever pointing to pre-built index on disk
+            app.state.retriever = Retriever(
+                index_dir=app.state.index_dir,
+                embedder=app.state.embedder,
+                top_k=app.state.top_k,
+            )
+
+            # If index already exists on disk, skip build entirely
+            count = app.state.retriever.collection.count()
+            if count > 0:
+                app.state.index_ready = True
+                logger.info(f"Index exists: {count} chunks — skipping build")
+            else:
+                logger.info("Index empty, building in background...")
+                asyncio.create_task(_build_index_background(app))
 
             app.state.generator = generator_from_env()
             logger.info("Generator ready")
@@ -202,9 +208,6 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"Startup failed: {e}")
             raise
-
-        # --- Build index in background so port binds immediately ---
-        asyncio.create_task(_build_index_background(app))
 
     @app.on_event("shutdown")
     async def shutdown():
