@@ -186,6 +186,12 @@ def create_app() -> FastAPI:
             app.state.embedder = Embedder(sbert_model_name=app.state.sbert_model)
             logger.info("Embedder ready")
 
+            # ↓ ADD DEBUG LINES HERE ↓
+            logger.info(f"CWD: {os.getcwd()}")
+            logger.info(f"BACKEND_DIR: {BACKEND_DIR}")
+            logger.info(f"Full index path: {str(BACKEND_DIR / app.state.index_dir)}")
+            logger.info(f"Chroma exists: {(BACKEND_DIR / app.state.index_dir / 'chroma').exists()}")
+
             # Pre-load retriever pointing to pre-built index on disk
             app.state.retriever = Retriever(
                 index_dir=str(BACKEND_DIR / app.state.index_dir),  # ← full absolute path
