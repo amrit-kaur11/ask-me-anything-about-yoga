@@ -17,6 +17,7 @@ from app.rag.embedder import Embedder
 from .index_utils import build_index_if_empty
 from app.rag.retriever import Retriever, RetrievedChunk
 from app.rag.generator import Generator
+from app.rag.generator import from_env
 from app.main import BACKEND_DIR
 
 logger = logging.getLogger(__name__)
@@ -80,12 +81,15 @@ def get_generator(request: Request) -> Optional[Generator]:
 # Main Ask Endpoint
 # -------------------------
 
+generator = from_env()
+
+
 @router.post("/ask", response_model=AskResponse)
 async def ask(
     request: Request,
     payload: AskRequest,
     mongo: Optional[Mongo] = Depends(get_mongo),
-    generator: Optional[Generator] = Depends(get_generator),
+    # generator: Optional[Generator] = Depends(get_generator),
 ) -> AskResponse:
     start = time.time()
     query = payload.query.strip()
