@@ -12,7 +12,15 @@ USER_PROMPT_TEMPLATE = """Question:
 Context (yoga notes; each chunk has an id):
 {context}
 
-Write the answer grounded in the context. If the context does not contain enough information, say so clearly.
-At the end, list the chunk ids you used as:
-Sources: id1, id2, ...
+Write the answer grounded in the context.
+
+Formatting rules:
+- Use Markdown.
+- Start with a clear title or direct answer.
+- Use short paragraphs.
+- Use bullet points for steps, benefits, warnings, or lists.
+- Use tables only when comparison improves readability.
+- Do not include a "Sources" section inside the answer text.
+
+If the context does not contain enough information, say so clearly and suggest what the user can ask next.
 """
