@@ -7,6 +7,7 @@ export function SourceList({ sources }) {
         style={{
           marginTop: 16,
           padding: 18,
+          boxSizing: "border-box",
           borderRadius: 16,
           border: "1px solid #e5e7eb",
           background: "#ffffff",

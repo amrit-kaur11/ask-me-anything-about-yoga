@@ -41,6 +41,7 @@ export function MessageBubble({ role, content, isUnsafe, safetyReasons }) {
   const bubbleStyle = {
     width: isUser ? "fit-content" : "100%",
     maxWidth: isUser ? "78%" : "100%",
+    boxSizing: "border-box",
     padding: isUser ? "12px 14px" : "20px 22px",
     borderRadius: isUser ? "16px 16px 4px 16px" : "16px",
     border: isUser ? "1px solid #bfdbfe" : "1px solid #e5e7eb",
@@ -58,6 +59,7 @@ export function MessageBubble({ role, content, isUnsafe, safetyReasons }) {
             style={{
               marginBottom: 14,
               padding: 14,
+              boxSizing: "border-box",
               borderRadius: 12,
               border: "1px solid #fecaca",
               background: "#fef2f2",
