@@ -95,7 +95,7 @@ export function MessageBubble({ role, content, isUnsafe, safetyReasons }) {
 
           <div
             style={{
-              fontSize: isUser ? 14 : 15,
+              fontSize: isUser ? 14 : 16,
               lineHeight: 1.75,
             }}
           >
@@ -152,8 +152,8 @@ export function MessageBubble({ role, content, isUnsafe, safetyReasons }) {
                 ul: ({ node, ...props }) => (
                   <ul
                     style={{
-                      margin: "8px 0 14px 20px",
-                      paddingLeft: 12,
+                      margin: "8px 0 14px 16px",
+                      paddingLeft: 8,
                       lineHeight: 1.75,
                     }}
                     {...props}
@@ -162,8 +162,8 @@ export function MessageBubble({ role, content, isUnsafe, safetyReasons }) {
                 ol: ({ node, ...props }) => (
                   <ol
                     style={{
-                      margin: "8px 0 14px 20px",
-                      paddingLeft: 12,
+                      margin: "8px 0 14px 16px",
+                      paddingLeft: 8,
                       lineHeight: 1.75,
                     }}
                     {...props}
